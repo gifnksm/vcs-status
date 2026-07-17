@@ -68,7 +68,7 @@ fn ensure_repository_status(
     }
 
     let Some(repo) = Repository::discover(target_dir)? else {
-        return Err("no VCS found for the target directory and this command can potentially perform destructive changes; if you'd like to suppress this error pass `--allow-no-vcs`".into());
+        return Err("no VCS found for the target directory; if you'd like to suppress this error pass `--allow-no-vcs`".into());
     };
 
     let status = repo.status()?;
@@ -79,7 +79,7 @@ fn ensure_repository_status(
 
     if status.has_worktree_changes() || status.has_untracked_files() {
         return Err(
-            "the target directory has uncommitted changes, and this command can potentially perform destructive changes; if you'd like to suppress this error pass `--allow-dirty`".into(),
+            "the target directory has uncommitted changes; if you'd like to suppress this error pass `--allow-dirty`".into(),
         );
     }
 
@@ -89,7 +89,7 @@ fn ensure_repository_status(
 
     if status.has_staged_changes() {
         return Err(
-            "the target directory has staged changes, and this command can potentially perform destructive changes; if you'd like to suppress this error pass `--allow-staged`".into(),
+            "the target directory has staged changes; if you'd like to suppress this error pass `--allow-staged`".into(),
         );
     }
 

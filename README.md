@@ -52,7 +52,7 @@ fn ensure_repository_status(
     }
 
     let Some(repo) = Repository::discover(target_dir)? else {
-        return Err("not inside a VCS repository".into());
+        return Err("no VCS found for the target directory".into());
     };
 
     let status = repo.status()?;
@@ -62,7 +62,7 @@ fn ensure_repository_status(
     }
 
     if status.has_worktree_changes() || status.has_untracked_files() {
-        return Err("repository has uncommitted changes".into());
+        return Err("the target directory has uncommitted changes".into());
     }
 
     if options.allow_staged {
@@ -70,7 +70,7 @@ fn ensure_repository_status(
     }
 
     if status.has_staged_changes() {
-        return Err("repository has staged changes".into());
+        return Err("the target directory has staged changes".into());
     }
 
     Ok(())
