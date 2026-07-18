@@ -35,16 +35,33 @@ pub enum VcsStatusError {
         /// The path that was rejected.
         path: PathBuf,
     },
+    /// The specified path could not be resolved to a canonical path.
+    #[snafu(display(
+        "path could not be resolved to a canonical path: {}",
+        path.display()
+    ))]
+    CanonicalizePath {
+        /// The path that was rejected.
+        path: PathBuf,
+        /// The underlying I/O error.
+        source: io::Error,
+    },
     /// The specified path is not a directory.
     #[snafu(display("path is not a directory: {}", path.display()))]
     PathNotADirectory {
         /// The path that was rejected.
         path: PathBuf,
     },
-    /// The specified path is not a valid path relative to the repository
-    /// worktree.
+    /// The specified path does not resolve to a file.
+    #[snafu(display("path does not resolve to a file: {}", path.display()))]
+    PathNotAFile {
+        /// The path that was rejected.
+        path: PathBuf,
+    },
+    /// The specified path does not resolve to a valid path within the
+    /// repository worktree.
     #[snafu(display(
-        "path is not a valid worktree-relative path: {}",
+        "path does not resolve to a valid path within the repository worktree: {}",
         path.display()
     ))]
     InvalidWorktreeRelativePath {

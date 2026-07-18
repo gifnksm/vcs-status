@@ -140,7 +140,7 @@ impl VcsRepository for Libgit2Repository {
                 // represented as UTF-8 when building the returned path sets.
                 continue;
             };
-            let status = file_status(entry.status());
+            let status = StatusFlags::from(entry.status());
             if status.modified {
                 modified.insert(path.into());
             }
@@ -159,38 +159,93 @@ impl VcsRepository for Libgit2Repository {
     }
 
     fn file_status(&self, path: &Path) -> Result<FileStatus, VcsStatusError> {
-        let path = util::normalize_worktree_relative_path(path)?;
+        let path = util::canonicalize_to_worktree_path(&self.worktree, path)?;
+        let fs_path = self.worktree.join(&path);
+        util::ensure_path_is_file(&fs_path)?;
         let status = match self.repo.status_file(&path) {
             Ok(status) => status,
             Err(source) if source.code() == git2::ErrorCode::NotFound => {
-                // Distinguish an existing untracked file from a missing path.
-                let fs_path = self.worktree.join(&path);
-                util::ensure_path_exists(&fs_path)?;
-                return Ok(FileStatus::untracked());
+                // At this point the path has already been resolved to an
+                // existing file within the worktree, so `NotFound` means the
+                // file is untracked by Git rather than missing from disk.
+                return Ok(StatusFlags::untracked().build_file_status(path));
             }
             Err(source) => {
                 return Err(QueryFileStatusSnafu { path }.into_error(source).into());
             }
         };
-        Ok(file_status(status))
+        Ok(StatusFlags::from(status).build_file_status(path))
     }
 }
 
-fn file_status(status: git2::Status) -> FileStatus {
-    if status.is_ignored() {
-        return FileStatus::ignored();
+#[derive(Debug, Clone, Copy)]
+struct StatusFlags {
+    modified: bool,
+    staged: bool,
+    untracked: bool,
+}
+
+impl From<git2::Status> for StatusFlags {
+    fn from(status: git2::Status) -> Self {
+        if status.is_ignored() {
+            return Self::ignored();
+        }
+        if status.is_wt_new() {
+            return Self::untracked();
+        }
+        let modified = status.is_wt_modified()
+            || status.is_wt_deleted()
+            || status.is_wt_renamed()
+            || status.is_wt_typechange();
+        let staged = status.is_index_new()
+            || status.is_index_modified()
+            || status.is_index_deleted()
+            || status.is_index_renamed()
+            || status.is_index_typechange();
+        Self::tracked(modified, staged)
     }
-    if status.is_wt_new() {
-        return FileStatus::untracked();
+}
+
+impl StatusFlags {
+    fn untracked() -> Self {
+        Self {
+            modified: false,
+            staged: false,
+            untracked: true,
+        }
     }
-    let modified = status.is_wt_modified()
-        || status.is_wt_deleted()
-        || status.is_wt_renamed()
-        || status.is_wt_typechange();
-    let staged = status.is_index_new()
-        || status.is_index_modified()
-        || status.is_index_deleted()
-        || status.is_index_renamed()
-        || status.is_index_typechange();
-    FileStatus::tracked(modified, staged)
+
+    fn tracked(modified: bool, staged: bool) -> Self {
+        Self {
+            modified,
+            staged,
+            untracked: false,
+        }
+    }
+
+    fn ignored() -> Self {
+        Self {
+            modified: false,
+            staged: false,
+            untracked: false,
+        }
+    }
+
+    fn build_file_status<P>(self, path: P) -> FileStatus
+    where
+        P: Into<PathBuf>,
+    {
+        let Self {
+            modified,
+            staged,
+            untracked,
+        } = self;
+        let path = path.into();
+        FileStatus {
+            path,
+            modified,
+            staged,
+            untracked,
+        }
+    }
 }

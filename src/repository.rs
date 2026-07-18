@@ -84,8 +84,9 @@ impl Repository {
 
     /// Returns the status of a single file `path` within the repository.
     ///
-    /// `path` is interpreted relative to [`Self::workdir`]. Redundant
-    /// separators and interior `.` components are normalized.
+    /// `path` must resolve to an existing file within [`Self::workdir`].
+    /// Symlinks are followed, and the returned [`FileStatus`] describes the
+    /// resolved file.
     ///
     /// A file may be both staged and modified at the same time if it has
     /// staged changes and additional unstaged changes.
@@ -97,9 +98,9 @@ impl Repository {
     ///
     /// Returns an error if:
     ///
-    /// - `path` is not a valid path relative to [`Self::workdir`]
-    /// - `path` does not refer to an existing file in the worktree, and the
-    ///   backend reports no matching file status
+    /// - `path` does not resolve to a path within [`Self::workdir`]
+    /// - `path` does not resolve to an existing file in the worktree
+    /// - `path` could not be resolved to a canonical path for any other reason
     /// - the backend fails to query file status for any other reason
     #[inline]
     pub fn file_status<P>(&self, path: P) -> Result<FileStatus, VcsStatusError>
@@ -183,66 +184,29 @@ impl RepositoryStatus {
 
 /// The status of a single file within a repository.
 ///
+/// The stored path is the canonical path of the resolved file, relative to
+/// [`Repository::workdir`].
+///
 /// More than one predicate may return `true` for the same file. For example,
 /// a file may have staged changes and additional unstaged modifications.
-#[expect(
-    missing_copy_implementations,
-    reason = "`Copy` is not part of this crate's public API contract"
-)]
 #[derive(Debug, Clone)]
 pub struct FileStatus {
+    pub(crate) path: PathBuf,
     pub(crate) modified: bool,
     pub(crate) staged: bool,
     pub(crate) untracked: bool,
 }
 
 impl FileStatus {
-    #[expect(
-        clippy::allow_attributes,
-        reason = "`allow` is necessary here because `unused` is only emitted when the feature is disabled"
-    )]
-    #[allow(
-        unused,
-        reason = "avoids feature-dependent `unused` warnings without introducing more complex `cfg` conditions"
-    )]
-    pub(crate) fn untracked() -> Self {
-        Self {
-            modified: false,
-            staged: false,
-            untracked: true,
-        }
-    }
-
-    #[expect(
-        clippy::allow_attributes,
-        reason = "`allow` is necessary here because `unused` is only emitted when the feature is disabled"
-    )]
-    #[allow(
-        unused,
-        reason = "avoids feature-dependent `unused` warnings without introducing more complex `cfg` conditions"
-    )]
-    pub(crate) fn tracked(modified: bool, staged: bool) -> Self {
-        Self {
-            modified,
-            staged,
-            untracked: false,
-        }
-    }
-
-    #[expect(
-        clippy::allow_attributes,
-        reason = "`allow` is necessary here because `unused` is only emitted when the feature is disabled"
-    )]
-    #[allow(
-        unused,
-        reason = "avoids feature-dependent `unused` warnings without introducing more complex `cfg` conditions"
-    )]
-    pub(crate) fn ignored() -> Self {
-        Self {
-            modified: false,
-            staged: false,
-            untracked: false,
-        }
+    /// Returns the canonical repository-relative path of the resolved file.
+    ///
+    /// This may differ from the path passed to [`Repository::file_status`]
+    /// when that path reaches the same file through symlinks or other
+    /// equivalent non-canonical forms.
+    #[inline]
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     /// Returns whether the file has tracked worktree changes.
