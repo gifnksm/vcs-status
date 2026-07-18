@@ -89,6 +89,8 @@ const DELETED_FILE: &str = "deleted_file.txt";
 const INDEX_DELETED_FILE: &str = "index_deleted_file.txt";
 const UNTRACKED_FILE: &str = "untracked_file.txt";
 const IGNORED_FILE: &str = "ignored_file.txt";
+#[cfg(unix)]
+const SYMLINK_FILE: &str = "symlink_file.txt";
 
 #[fixture]
 fn clean_worktree() -> PathInTempDir {
@@ -216,9 +218,22 @@ fn worktree_with_mixed_changes() -> PathInTempDir {
     path
 }
 
+#[cfg(unix)]
+#[fixture]
+fn worktree_with_symlink() -> PathInTempDir {
+    let path = PathInTempDir::new();
+    git_init(&path).success();
+    path.child(CLEAN_FILE).touch().unwrap();
+    std::os::unix::fs::symlink(CLEAN_FILE, path.path().join(SYMLINK_FILE)).unwrap();
+    git_add(&path, ["."]).success();
+    git_commit(&path).success();
+    path
+}
+
 const SUBDIR_CLEAN_FILE: &str = "subdir/clean_file.txt";
 const SUBDIR_MODIFIED_FILE: &str = "subdir/modified_file.txt";
 const SUBDIR_UNTRACKED_FILE: &str = "subdir/untracked_file.txt";
+const SUBDIR_IGNORED_FILE: &str = "subdir/ignored_file.txt";
 
 #[fixture]
 fn clean_worktree_with_subdir() -> PathInTempDir {
@@ -250,6 +265,17 @@ fn worktree_with_untracked_subdir() -> PathInTempDir {
     git_add(&path, ["."]).success();
     git_commit(&path).success();
     path.child(SUBDIR_UNTRACKED_FILE).touch().unwrap();
+    path
+}
+
+#[fixture]
+fn worktree_with_ignored_subdir() -> PathInTempDir {
+    let path = PathInTempDir::new();
+    git_init(&path).success();
+    path.child(".gitignore").write_str("subdir/").unwrap();
+    git_add(&path, ["."]).success();
+    git_commit(&path).success();
+    path.child(SUBDIR_IGNORED_FILE).touch().unwrap();
     path
 }
 
@@ -608,7 +634,7 @@ fn file_status_reports_nothing_for_clean_file(
     let path = clean_worktree.path();
     let repo = backend.open(path).unwrap().unwrap();
     let status = repo.file_status(Path::new(CLEAN_FILE)).unwrap();
-    AssertFileStatus::default().assert(status);
+    AssertFileStatus::new(CLEAN_FILE).assert(status);
 }
 
 #[apply(all_backends)]
@@ -620,7 +646,9 @@ fn file_status_reports_modified_file(
     let path = worktree_with_modified_file.path();
     let repo = backend.open(path).unwrap().unwrap();
     let status = repo.file_status(Path::new(MODIFIED_FILE)).unwrap();
-    AssertFileStatus::default().modified().assert(status);
+    AssertFileStatus::new(MODIFIED_FILE)
+        .modified()
+        .assert(status);
 }
 
 #[apply(all_backends)]
@@ -632,7 +660,7 @@ fn file_status_reports_staged_file(
     let path = worktree_with_staged_file.path();
     let repo = backend.open(path).unwrap().unwrap();
     let status = repo.file_status(Path::new(STAGED_FILE)).unwrap();
-    AssertFileStatus::default().staged().assert(status);
+    AssertFileStatus::new(STAGED_FILE).staged().assert(status);
 }
 
 #[apply(all_backends)]
@@ -646,7 +674,7 @@ fn file_status_reports_modified_and_staged_file(
     let status = repo
         .file_status(Path::new(MODIFIED_AND_STAGED_FILE))
         .unwrap();
-    AssertFileStatus::default()
+    AssertFileStatus::new(MODIFIED_AND_STAGED_FILE)
         .modified()
         .staged()
         .assert(status);
@@ -661,7 +689,9 @@ fn file_status_reports_untracked_file(
     let path = worktree_with_untracked_file.path();
     let repo = backend.open(path).unwrap().unwrap();
     let status = repo.file_status(Path::new(UNTRACKED_FILE)).unwrap();
-    AssertFileStatus::default().untracked().assert(status);
+    AssertFileStatus::new(UNTRACKED_FILE)
+        .untracked()
+        .assert(status);
 }
 
 #[apply(all_backends)]
@@ -673,7 +703,7 @@ fn file_status_reports_nothing_for_ignored_file(
     let path = worktree_with_ignored_file.path();
     let repo = backend.open(path).unwrap().unwrap();
     let status = repo.file_status(Path::new(IGNORED_FILE)).unwrap();
-    AssertFileStatus::default().assert(status);
+    AssertFileStatus::new(IGNORED_FILE).assert(status);
 }
 
 #[apply(all_backends)]
@@ -686,27 +716,41 @@ fn file_status_reports_mixed_changes(
     let repo = backend.open(path).unwrap().unwrap();
 
     let status = repo.file_status(Path::new(CLEAN_FILE)).unwrap();
-    AssertFileStatus::default().assert(status);
+    AssertFileStatus::new(CLEAN_FILE).assert(status);
 
     let status = repo.file_status(Path::new(MODIFIED_FILE)).unwrap();
-    AssertFileStatus::default().modified().assert(status);
+    AssertFileStatus::new(MODIFIED_FILE)
+        .modified()
+        .assert(status);
 
     let status = repo.file_status(Path::new(STAGED_FILE)).unwrap();
-    AssertFileStatus::default().staged().assert(status);
+    AssertFileStatus::new(STAGED_FILE).staged().assert(status);
 
     let status = repo
         .file_status(Path::new(MODIFIED_AND_STAGED_FILE))
         .unwrap();
-    AssertFileStatus::default()
+    AssertFileStatus::new(MODIFIED_AND_STAGED_FILE)
         .modified()
         .staged()
         .assert(status);
 
     let status = repo.file_status(Path::new(UNTRACKED_FILE)).unwrap();
-    AssertFileStatus::default().untracked().assert(status);
+    AssertFileStatus::new(UNTRACKED_FILE)
+        .untracked()
+        .assert(status);
 
     let status = repo.file_status(Path::new(IGNORED_FILE)).unwrap();
-    AssertFileStatus::default().assert(status);
+    AssertFileStatus::new(IGNORED_FILE).assert(status);
+}
+
+#[cfg(unix)]
+#[apply(all_backends)]
+#[rstest]
+fn file_status_resolves_symlink(backend: &dyn VcsBackend, worktree_with_symlink: PathInTempDir) {
+    let path = worktree_with_symlink.path();
+    let repo = backend.open(path).unwrap().unwrap();
+    let status = repo.file_status(Path::new(SYMLINK_FILE)).unwrap();
+    AssertFileStatus::new(CLEAN_FILE).assert(status);
 }
 
 #[apply(all_backends)]
@@ -722,43 +766,37 @@ fn file_status_rejects_non_existent_file(backend: &dyn VcsBackend, clean_worktre
 
 #[apply(all_backends)]
 #[rstest]
-fn file_status_normalizes_path(
+fn file_status_returns_canonicalized_path(
     backend: &dyn VcsBackend,
     clean_worktree_with_subdir: PathInTempDir,
 ) {
-    let path = clean_worktree_with_subdir.path();
-    let repo = backend.open(path).unwrap().unwrap();
+    let repo_path = clean_worktree_with_subdir.path();
+    let dir_name = repo_path.file_name().unwrap().to_str().unwrap();
+    let repo = backend.open(repo_path).unwrap().unwrap();
 
     let path = PathBuf::from(format!("subdir//{CLEAN_FILE}"));
     let status = repo.file_status(&path).unwrap();
-    AssertFileStatus::default().assert(status);
+    AssertFileStatus::new(SUBDIR_CLEAN_FILE).assert(status);
+
+    let path = PathBuf::from(format!("./{SUBDIR_CLEAN_FILE}"));
+    let status = repo.file_status(&path).unwrap();
+    AssertFileStatus::new(SUBDIR_CLEAN_FILE).assert(status);
 
     let path = PathBuf::from(format!("subdir/./{CLEAN_FILE}"));
     let status = repo.file_status(&path).unwrap();
-    AssertFileStatus::default().assert(status);
-}
-
-#[apply(all_backends)]
-#[rstest]
-fn file_status_rejects_path_contains_dotdot(
-    backend: &dyn VcsBackend,
-    clean_worktree_with_subdir: PathInTempDir,
-) {
-    let path = clean_worktree_with_subdir.path();
-    let dir_name = path.file_name().unwrap().to_str().unwrap();
-    let repo = backend.open(path).unwrap().unwrap();
+    AssertFileStatus::new(SUBDIR_CLEAN_FILE).assert(status);
 
     let path = PathBuf::from(format!("../{dir_name}/{SUBDIR_CLEAN_FILE}"));
-    let err = repo.file_status(&path).unwrap_err();
-    assert_matches!(err, VcsStatusError::InvalidWorktreeRelativePath { .. });
+    let status = repo.file_status(&path).unwrap();
+    AssertFileStatus::new(SUBDIR_CLEAN_FILE).assert(status);
 
     let path = PathBuf::from(format!("subdir/../{SUBDIR_CLEAN_FILE}"));
-    let err = repo.file_status(&path).unwrap_err();
-    assert_matches!(err, VcsStatusError::InvalidWorktreeRelativePath { .. });
+    let status = repo.file_status(&path).unwrap();
+    AssertFileStatus::new(SUBDIR_CLEAN_FILE).assert(status);
 
-    let path = PathBuf::from(format!("./{SUBDIR_CLEAN_FILE}"));
-    let err = repo.file_status(&path).unwrap_err();
-    assert_matches!(err, VcsStatusError::InvalidWorktreeRelativePath { .. });
+    let path = repo_path.join(SUBDIR_CLEAN_FILE);
+    let status = repo.file_status(&path).unwrap();
+    AssertFileStatus::new(SUBDIR_CLEAN_FILE).assert(status);
 }
 
 #[apply(all_backends)]
@@ -776,20 +814,6 @@ fn file_status_rejects_empty_path(
 
 #[apply(all_backends)]
 #[rstest]
-fn file_status_rejects_absolute_path(
-    backend: &dyn VcsBackend,
-    clean_worktree_with_subdir: PathInTempDir,
-) {
-    let path = clean_worktree_with_subdir.path();
-    let repo = backend.open(path).unwrap().unwrap();
-
-    let absolute_path = PathBuf::from(format!("/{SUBDIR_CLEAN_FILE}"));
-    let err = repo.file_status(&absolute_path).unwrap_err();
-    assert_matches!(err, VcsStatusError::InvalidWorktreeRelativePath { .. });
-}
-
-#[apply(all_backends)]
-#[rstest]
 fn file_status_reports_modified_file_in_subdir(
     backend: &dyn VcsBackend,
     worktree_with_modified_subdir: PathInTempDir,
@@ -797,7 +821,9 @@ fn file_status_reports_modified_file_in_subdir(
     let path = worktree_with_modified_subdir.path();
     let repo = backend.open(path).unwrap().unwrap();
     let status = repo.file_status(Path::new(SUBDIR_MODIFIED_FILE)).unwrap();
-    AssertFileStatus::default().modified().assert(status);
+    AssertFileStatus::new(SUBDIR_MODIFIED_FILE)
+        .modified()
+        .assert(status);
 }
 
 #[apply(all_backends)]
@@ -809,7 +835,9 @@ fn file_status_reports_untracked_file_in_subdir(
     let path = worktree_with_untracked_subdir.path();
     let repo = backend.open(path).unwrap().unwrap();
     let status = repo.file_status(Path::new(SUBDIR_UNTRACKED_FILE)).unwrap();
-    AssertFileStatus::default().untracked().assert(status);
+    AssertFileStatus::new(SUBDIR_UNTRACKED_FILE)
+        .untracked()
+        .assert(status);
 }
 
 #[apply(all_backends)]
@@ -821,5 +849,75 @@ fn file_status_rejects_directory_path(
     let path = clean_worktree_with_subdir.path();
     let repo = backend.open(path).unwrap().unwrap();
     let err = repo.file_status(Path::new("subdir")).unwrap_err();
-    assert_matches!(err, VcsStatusError::Backend { .. });
+    assert_matches!(err, VcsStatusError::PathNotAFile { .. });
+}
+
+#[apply(all_backends)]
+#[rstest]
+fn file_status_reports_file_in_ignored_directory_path(
+    backend: &dyn VcsBackend,
+    worktree_with_ignored_subdir: PathInTempDir,
+) {
+    let path = worktree_with_ignored_subdir.path();
+    let repo = backend.open(path).unwrap().unwrap();
+    let status = repo.file_status(Path::new(SUBDIR_IGNORED_FILE)).unwrap();
+    AssertFileStatus::new(SUBDIR_IGNORED_FILE).assert(status);
+}
+
+#[apply(all_backends)]
+#[rstest]
+fn status_and_file_status_agree_for_paths_reported_individually(
+    backend: &dyn VcsBackend,
+    worktree_with_mixed_changes: PathInTempDir,
+) {
+    let path = worktree_with_mixed_changes.path();
+    let repo = backend.open(path).unwrap().unwrap();
+    let repo_status = repo.status().unwrap();
+
+    let paths = [
+        (CLEAN_FILE, None),
+        (MODIFIED_FILE, None),
+        (STAGED_FILE, None),
+        (MODIFIED_AND_STAGED_FILE, None),
+        (DELETED_FILE, Some((true, false))),
+        (INDEX_DELETED_FILE, Some((false, true))),
+        (UNTRACKED_FILE, None),
+        (IGNORED_FILE, None),
+    ];
+
+    let mut modified_count = 0;
+    let mut staged_count = 0;
+    let mut untracked_count = 0;
+
+    for (path, deleted) in &paths {
+        let path = Path::new(path);
+        if let Some((wt_deleted, index_deleted)) = *deleted {
+            if wt_deleted {
+                modified_count += 1;
+            }
+            if index_deleted {
+                staged_count += 1;
+            }
+            continue;
+        }
+        let file_status = repo.file_status(path).unwrap();
+        let mut expected = AssertFileStatus::new(path);
+        if repo_status.modified.contains(path) {
+            modified_count += 1;
+            expected = expected.modified();
+        }
+        if repo_status.staged.contains(path) {
+            staged_count += 1;
+            expected = expected.staged();
+        }
+        if repo_status.untracked.contains(path) {
+            untracked_count += 1;
+            expected = expected.untracked();
+        }
+        expected.assert(file_status);
+    }
+
+    assert_eq!(repo_status.modified.len(), modified_count);
+    assert_eq!(repo_status.staged.len(), staged_count);
+    assert_eq!(repo_status.untracked.len(), untracked_count);
 }

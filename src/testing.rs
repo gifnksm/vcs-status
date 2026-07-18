@@ -73,8 +73,9 @@ impl AssertRepositoryStatus {
 }
 
 #[must_use]
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct AssertFileStatus {
+    path: PathBuf,
     modified: bool,
     staged: bool,
     untracked: bool,
@@ -83,11 +84,13 @@ pub(crate) struct AssertFileStatus {
 impl From<FileStatus> for AssertFileStatus {
     fn from(status: FileStatus) -> Self {
         let FileStatus {
+            path,
             modified,
             staged,
             untracked,
         } = status;
         Self {
+            path,
             modified,
             staged,
             untracked,
@@ -96,6 +99,18 @@ impl From<FileStatus> for AssertFileStatus {
 }
 
 impl AssertFileStatus {
+    pub(crate) fn new<P>(path: P) -> Self
+    where
+        P: Into<PathBuf>,
+    {
+        Self {
+            path: path.into(),
+            modified: false,
+            staged: false,
+            untracked: false,
+        }
+    }
+
     pub(crate) fn modified(mut self) -> Self {
         self.modified = true;
         self
