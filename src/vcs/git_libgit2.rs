@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeSet,
     fmt,
     path::{Path, PathBuf},
 };
@@ -120,42 +119,23 @@ impl VcsRepository for Libgit2Repository {
         &self.worktree
     }
 
-    fn status(&self) -> Result<RepositoryStatus, VcsStatusError> {
+    fn repository_status(&self) -> Result<RepositoryStatus, VcsStatusError> {
         let mut repo_opts = git2::StatusOptions::new();
         repo_opts.include_ignored(true);
         repo_opts.include_untracked(true);
-        let statuses =
+        let entries =
             self.repo
                 .statuses(Some(&mut repo_opts))
                 .context(QueryRepositoryStatusSnafu {
                     worktree: &self.worktree,
                 })?;
+        let file_entries = entries.iter().filter_map(|entry| {
+            // Match `cargo fix`: ignore status entries whose paths cannot be represented as UTF-8.
+            let path = entry.path().ok()?;
+            Some(StatusFlags::from(entry.status()).build(path))
+        });
 
-        let mut modified = BTreeSet::new();
-        let mut staged = BTreeSet::new();
-        let mut untracked = BTreeSet::new();
-        for entry in statuses.iter() {
-            let Ok(path) = entry.path() else {
-                // Match `cargo fix`: ignore status entries whose paths cannot be
-                // represented as UTF-8 when building the returned path sets.
-                continue;
-            };
-            let status = StatusFlags::from(entry.status());
-            if status.modified {
-                modified.insert(path.into());
-            }
-            if status.staged {
-                staged.insert(path.into());
-            }
-            if status.untracked {
-                untracked.insert(path.into());
-            }
-        }
-        Ok(RepositoryStatus {
-            modified,
-            staged,
-            untracked,
-        })
+        Ok(RepositoryStatus::new(file_entries))
     }
 
     fn file_status(&self, path: &Path) -> Result<FileStatus, VcsStatusError> {
@@ -168,13 +148,13 @@ impl VcsRepository for Libgit2Repository {
                 // At this point the path has already been resolved to an
                 // existing file within the worktree, so `NotFound` means the
                 // file is untracked by Git rather than missing from disk.
-                return Ok(StatusFlags::untracked().build_file_status(path));
+                return Ok(StatusFlags::untracked().build(path));
             }
             Err(source) => {
                 return Err(QueryFileStatusSnafu { path }.into_error(source).into());
             }
         };
-        Ok(StatusFlags::from(status).build_file_status(path))
+        Ok(StatusFlags::from(status).build(path))
     }
 }
 
@@ -231,7 +211,7 @@ impl StatusFlags {
         }
     }
 
-    fn build_file_status<P>(self, path: P) -> FileStatus
+    fn build<P>(self, path: P) -> FileStatus
     where
         P: Into<PathBuf>,
     {

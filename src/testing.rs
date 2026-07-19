@@ -4,7 +4,7 @@
 )]
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 
@@ -13,11 +13,12 @@ use assert_fs::{
     fixture::{ChildPath, PathChild},
 };
 
-use crate::{FileStatus, RepositoryStatus};
+use crate::repository::{FileStatus, RepositoryStatus};
 
 #[must_use]
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct AssertRepositoryStatus {
+    files: BTreeMap<PathBuf, AssertFileStatus>,
     modified: BTreeSet<PathBuf>,
     staged: BTreeSet<PathBuf>,
     untracked: BTreeSet<PathBuf>,
@@ -25,12 +26,28 @@ pub(crate) struct AssertRepositoryStatus {
 
 impl From<RepositoryStatus> for AssertRepositoryStatus {
     fn from(status: RepositoryStatus) -> Self {
-        let RepositoryStatus {
-            modified,
-            staged,
-            untracked,
-        } = status;
+        fn collect_path<'a, I>(iter: I) -> BTreeSet<PathBuf>
+        where
+            I: IntoIterator<Item = &'a FileStatus>,
+        {
+            iter.into_iter().map(|file| file.path.clone()).collect()
+        }
+
+        let files = status
+            .files()
+            .map(|file| (file.path().to_owned(), AssertFileStatus::from(file.clone())))
+            .collect();
+
+        let paths = collect_path(status.files());
+        let modified = collect_path(status.modified_files());
+        assert!(modified.is_subset(&paths));
+        let staged = collect_path(status.staged_files());
+        assert!(staged.is_subset(&paths));
+        let untracked = collect_path(status.untracked_files());
+        assert!(untracked.is_subset(&paths));
+
         Self {
+            files,
             modified,
             staged,
             untracked,
@@ -44,7 +61,15 @@ impl AssertRepositoryStatus {
         I: IntoIterator<Item = P>,
         P: Into<PathBuf>,
     {
-        self.modified.extend(paths.into_iter().map(Into::into));
+        for path in paths {
+            let path = path.into();
+            let file = self
+                .files
+                .entry(path.clone())
+                .or_insert_with(|| AssertFileStatus::new(path.clone()));
+            file.modified = true;
+            self.modified.insert(path);
+        }
         self
     }
 
@@ -53,7 +78,15 @@ impl AssertRepositoryStatus {
         I: IntoIterator<Item = P>,
         P: Into<PathBuf>,
     {
-        self.staged.extend(paths.into_iter().map(Into::into));
+        for path in paths {
+            let path = path.into();
+            let file = self
+                .files
+                .entry(path.clone())
+                .or_insert_with(|| AssertFileStatus::new(path.clone()));
+            file.staged = true;
+            self.staged.insert(path);
+        }
         self
     }
 
@@ -62,7 +95,29 @@ impl AssertRepositoryStatus {
         I: IntoIterator<Item = P>,
         P: Into<PathBuf>,
     {
-        self.untracked.extend(paths.into_iter().map(Into::into));
+        for path in paths {
+            let path = path.into();
+            let file = self
+                .files
+                .entry(path.clone())
+                .or_insert_with(|| AssertFileStatus::new(path.clone()));
+            file.untracked = true;
+            self.untracked.insert(path);
+        }
+        self
+    }
+
+    pub(crate) fn ignored<I, P>(mut self, paths: I) -> Self
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        for path in paths {
+            let path = path.into();
+            self.files
+                .entry(path.clone())
+                .or_insert_with(|| AssertFileStatus::new(path.clone()));
+        }
         self
     }
 

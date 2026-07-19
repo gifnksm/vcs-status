@@ -55,13 +55,13 @@ fn ensure_repository_status(
         return Err("no VCS found for the target directory".into());
     };
 
-    let status = repo.status()?;
+    let status = repo.repository_status()?;
 
     if options.allow_dirty {
         return Ok(());
     }
 
-    if status.has_worktree_changes() || status.has_untracked_files() {
+    if status.has_modified_files() || status.has_untracked_files() {
         return Err("the target directory has uncommitted changes".into());
     }
 
@@ -69,7 +69,7 @@ fn ensure_repository_status(
         return Ok(());
     }
 
-    if status.has_staged_changes() {
+    if status.has_staged_files() {
         return Err("the target directory has staged changes".into());
     }
 
