@@ -11,6 +11,7 @@ use rstest_reuse::*;
 
 use crate::{
     VcsStatusError,
+    repository::FileStatus,
     testing::{AssertFileStatus, AssertRepositoryStatus, PathInTempDir},
     vcs::{self, VcsBackend},
 };
@@ -483,7 +484,7 @@ fn status_reports_nothing_for_clean_worktree(
 ) {
     let path = clean_worktree.path();
     let repo = backend.open(path).unwrap().unwrap();
-    let status = repo.status().unwrap();
+    let status = repo.repository_status().unwrap();
     AssertRepositoryStatus::default().assert(status);
 }
 
@@ -495,7 +496,7 @@ fn status_reports_modified_file(
 ) {
     let path = worktree_with_modified_file.path();
     let repo = backend.open(path).unwrap().unwrap();
-    let status = repo.status().unwrap();
+    let status = repo.repository_status().unwrap();
     AssertRepositoryStatus::default()
         .modified([MODIFIED_FILE])
         .assert(status);
@@ -506,7 +507,7 @@ fn status_reports_modified_file(
 fn status_reports_staged_file(backend: &dyn VcsBackend, worktree_with_staged_file: PathInTempDir) {
     let path = worktree_with_staged_file.path();
     let repo = backend.open(path).unwrap().unwrap();
-    let status = repo.status().unwrap();
+    let status = repo.repository_status().unwrap();
     AssertRepositoryStatus::default()
         .staged([STAGED_FILE])
         .assert(status);
@@ -520,7 +521,7 @@ fn status_reports_modified_and_staged_file(
 ) {
     let path = worktree_with_modified_and_staged_file.path();
     let repo = backend.open(path).unwrap().unwrap();
-    let status = repo.status().unwrap();
+    let status = repo.repository_status().unwrap();
     AssertRepositoryStatus::default()
         .modified([MODIFIED_AND_STAGED_FILE])
         .staged([MODIFIED_AND_STAGED_FILE])
@@ -535,7 +536,7 @@ fn status_reports_deleted_file(
 ) {
     let path = worktree_with_deleted_file.path();
     let repo = backend.open(path).unwrap().unwrap();
-    let status = repo.status().unwrap();
+    let status = repo.repository_status().unwrap();
     AssertRepositoryStatus::default()
         .modified([DELETED_FILE])
         .assert(status);
@@ -549,7 +550,7 @@ fn status_reports_index_deleted_file(
 ) {
     let path = worktree_with_index_deleted_file.path();
     let repo = backend.open(path).unwrap().unwrap();
-    let status = repo.status().unwrap();
+    let status = repo.repository_status().unwrap();
     AssertRepositoryStatus::default()
         .staged([INDEX_DELETED_FILE])
         .assert(status);
@@ -563,7 +564,7 @@ fn status_reports_untracked_file(
 ) {
     let path = worktree_with_untracked_file.path();
     let repo = backend.open(path).unwrap().unwrap();
-    let status = repo.status().unwrap();
+    let status = repo.repository_status().unwrap();
     AssertRepositoryStatus::default()
         .untracked([UNTRACKED_FILE])
         .assert(status);
@@ -577,8 +578,10 @@ fn status_reports_nothing_for_worktree_with_ignored_file(
 ) {
     let path = worktree_with_ignored_file.path();
     let repo = backend.open(path).unwrap().unwrap();
-    let status = repo.status().unwrap();
-    AssertRepositoryStatus::default().assert(status);
+    let status = repo.repository_status().unwrap();
+    AssertRepositoryStatus::default()
+        .ignored([IGNORED_FILE])
+        .assert(status);
 }
 
 #[apply(all_backends)]
@@ -589,11 +592,12 @@ fn status_reports_mixed_changes(
 ) {
     let path = worktree_with_mixed_changes.path();
     let repo = backend.open(path).unwrap().unwrap();
-    let status = repo.status().unwrap();
+    let status = repo.repository_status().unwrap();
     AssertRepositoryStatus::default()
         .modified([MODIFIED_FILE, MODIFIED_AND_STAGED_FILE, DELETED_FILE])
         .staged([STAGED_FILE, MODIFIED_AND_STAGED_FILE, INDEX_DELETED_FILE])
         .untracked([UNTRACKED_FILE])
+        .ignored([IGNORED_FILE])
         .assert(status);
 }
 
@@ -605,7 +609,7 @@ fn status_reports_modified_file_in_subdir(
 ) {
     let path = worktree_with_modified_subdir.path();
     let repo = backend.open(path).unwrap().unwrap();
-    let status = repo.status().unwrap();
+    let status = repo.repository_status().unwrap();
     AssertRepositoryStatus::default()
         .modified([SUBDIR_MODIFIED_FILE])
         .assert(status);
@@ -619,7 +623,7 @@ fn status_reports_untracked_file_in_subdir_as_untracked_dir(
 ) {
     let path = worktree_with_untracked_subdir.path();
     let repo = backend.open(path).unwrap().unwrap();
-    let status = repo.status().unwrap();
+    let status = repo.repository_status().unwrap();
     AssertRepositoryStatus::default()
         .untracked(["subdir/"])
         .assert(status);
@@ -872,7 +876,7 @@ fn status_and_file_status_agree_for_paths_reported_individually(
 ) {
     let path = worktree_with_mixed_changes.path();
     let repo = backend.open(path).unwrap().unwrap();
-    let repo_status = repo.status().unwrap();
+    let repo_status = repo.repository_status().unwrap();
 
     let paths = [
         (CLEAN_FILE, None),
@@ -889,6 +893,19 @@ fn status_and_file_status_agree_for_paths_reported_individually(
     let mut staged_count = 0;
     let mut untracked_count = 0;
 
+    let repo_modified_paths = repo_status
+        .modified_files()
+        .map(FileStatus::path)
+        .collect::<Vec<_>>();
+    let repo_staged_paths = repo_status
+        .staged_files()
+        .map(FileStatus::path)
+        .collect::<Vec<_>>();
+    let repo_untracked_paths = repo_status
+        .untracked_files()
+        .map(FileStatus::path)
+        .collect::<Vec<_>>();
+
     for (path, deleted) in &paths {
         let path = Path::new(path);
         if let Some((wt_deleted, index_deleted)) = *deleted {
@@ -902,22 +919,22 @@ fn status_and_file_status_agree_for_paths_reported_individually(
         }
         let file_status = repo.file_status(path).unwrap();
         let mut expected = AssertFileStatus::new(path);
-        if repo_status.modified.contains(path) {
+        if repo_modified_paths.contains(&path) {
             modified_count += 1;
             expected = expected.modified();
         }
-        if repo_status.staged.contains(path) {
+        if repo_staged_paths.contains(&path) {
             staged_count += 1;
             expected = expected.staged();
         }
-        if repo_status.untracked.contains(path) {
+        if repo_untracked_paths.contains(&path) {
             untracked_count += 1;
             expected = expected.untracked();
         }
         expected.assert(file_status);
     }
 
-    assert_eq!(repo_status.modified.len(), modified_count);
-    assert_eq!(repo_status.staged.len(), staged_count);
-    assert_eq!(repo_status.untracked.len(), untracked_count);
+    assert_eq!(repo_modified_paths.len(), modified_count);
+    assert_eq!(repo_staged_paths.len(), staged_count);
+    assert_eq!(repo_untracked_paths.len(), untracked_count);
 }
