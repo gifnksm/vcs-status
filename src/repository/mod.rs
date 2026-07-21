@@ -8,10 +8,13 @@
 //! directly in order to implement custom policy logic.
 //!
 //! Paths returned by change queries are relative to the repository worktree.
+//! Query methods that take a `path` argument interpret it relative to that
+//! worktree. If you start with an absolute path or a path relative to the
+//! current working directory, use [`Repository::resolve_path`] first.
 //!
-//! Typical entry points in this module are [`Repository::discover`] and
-//! [`Repository::open`], followed by [`Repository::repository_changes`],
-//! [`Repository::path_changes`], or [`Repository::file_change`].
+//! Start with [`Repository::discover`] or [`Repository::open`], then query
+//! repository-wide changes directly or resolve a path and query it within the
+//! worktree.
 //!
 //! # Example
 //!
@@ -221,6 +224,33 @@ impl Repository {
         self.inner.worktree()
     }
 
+    /// Resolves a path to a repository worktree-relative path.
+    ///
+    /// This follows symlinks and canonicalizes the existing prefix of `path`.
+    /// The returned path is relative to [`Self::worktree`].
+    ///
+    /// If `path` does not exist in the worktree, this method may still succeed
+    /// when the missing path is lexically within the worktree, such as a path
+    /// to a deleted tracked file.
+    ///
+    /// Use this when you start with an absolute path or a path relative to the
+    /// current working directory and need the corresponding worktree-relative
+    /// path for [`Self::path_changes`] or [`Self::file_change`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// - `path` does not resolve to a path within [`Self::worktree`]
+    /// - `path` could not be resolved to a canonical path for any other reason
+    #[inline]
+    pub fn resolve_path<P>(&self, path: P) -> Result<PathBuf, ModifyGuardError>
+    where
+        P: AsRef<Path>,
+    {
+        self.inner.resolve_path(path.as_ref())
+    }
+
     /// Returns the aggregate file changes in the repository worktree.
     ///
     /// Returns `Ok(None)` if the repository has no modified, staged, or
@@ -239,7 +269,8 @@ impl Repository {
         self.inner.repository_changes()
     }
 
-    /// Returns the aggregate file changes for `path` within the repository.
+    /// Returns the aggregate file changes for the worktree-relative `path`
+    /// within the repository.
     ///
     /// If `path` resolves to a file path, the returned change set contains at
     /// most that file. If `path` resolves to a directory path, the returned
@@ -254,8 +285,9 @@ impl Repository {
     ///
     /// Paths in the returned changes are relative to [`Self::worktree`].
     ///
-    /// `path` must resolve to a path within [`Self::worktree`]. Symlinks are
-    /// followed.
+    /// `path` is interpreted relative to [`Self::worktree`]. If you have an
+    /// absolute path or a path relative to the current working directory, use
+    /// [`Self::resolve_path`] first. Symlinks are followed.
     ///
     /// If the resolved path does not exist in the worktree, this method may
     /// still return changes when the path refers to paths known to the VCS,
@@ -278,8 +310,8 @@ impl Repository {
         self.inner.path_changes(path.as_ref())
     }
 
-    /// Returns the modified, staged, or untracked change for the file path
-    /// `path` within the repository, if any.
+    /// Returns the modified, staged, or untracked change for the
+    /// worktree-relative file path `path` within the repository, if any.
     ///
     /// Returns `Ok(None)` if the resolved file path is clean or ignored by the
     /// VCS.
@@ -287,8 +319,9 @@ impl Repository {
     /// If this method returns `Ok(Some(change))`, the returned [`FileChange`]
     /// describes the resolved file path.
     ///
-    /// `path` must resolve to a path within [`Self::worktree`]. Symlinks are
-    /// followed.
+    /// `path` is interpreted relative to [`Self::worktree`]. If you have an
+    /// absolute path or a path relative to the current working directory, use
+    /// [`Self::resolve_path`] first. Symlinks are followed.
     ///
     /// If the resolved path exists in the worktree, it must be a file.
     /// If it does not exist in the worktree, this method may still return a

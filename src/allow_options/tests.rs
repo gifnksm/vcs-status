@@ -42,6 +42,8 @@ fn untracked_file(path: &str) -> FileChange {
 #[derive(Clone, Debug)]
 struct StubRepo {
     worktree: PathBuf,
+    resolve_path_result: Option<PathBuf>,
+    expected_path_changes_path: Option<PathBuf>,
     path_changes_result: Option<RepositoryChanges>,
     repository_changes_result: Option<RepositoryChanges>,
 }
@@ -50,6 +52,8 @@ impl Default for StubRepo {
     fn default() -> Self {
         Self {
             worktree: PathBuf::from(WORKTREE),
+            resolve_path_result: None,
+            expected_path_changes_path: None,
             path_changes_result: None,
             repository_changes_result: None,
         }
@@ -57,6 +61,22 @@ impl Default for StubRepo {
 }
 
 impl StubRepo {
+    fn with_resolve_path_result<P>(mut self, path: P) -> Self
+    where
+        P: Into<PathBuf>,
+    {
+        self.resolve_path_result = Some(path.into());
+        self
+    }
+
+    fn with_expected_path_changes_path<P>(mut self, path: P) -> Self
+    where
+        P: Into<PathBuf>,
+    {
+        self.expected_path_changes_path = Some(path.into());
+        self
+    }
+
     fn with_path_changes<I>(mut self, files: I) -> Self
     where
         I: IntoIterator<Item = FileChange>,
@@ -79,7 +99,17 @@ impl AllowOptionsRepository for StubRepo {
         &self.worktree
     }
 
-    fn path_changes(&self, _path: &Path) -> Result<Option<RepositoryChanges>, ModifyGuardError> {
+    fn resolve_path(&self, path: &Path) -> Result<PathBuf, ModifyGuardError> {
+        Ok(self
+            .resolve_path_result
+            .clone()
+            .unwrap_or_else(|| path.to_path_buf()))
+    }
+
+    fn path_changes(&self, path: &Path) -> Result<Option<RepositoryChanges>, ModifyGuardError> {
+        if let Some(expected) = &self.expected_path_changes_path {
+            assert_eq!(path, expected);
+        }
         Ok(self.path_changes_result.clone())
     }
 
@@ -302,6 +332,21 @@ fn check_safe_to_modify_checks_only_the_queried_path_by_default() {
 
     let result = AllowOptions::new()
         .check_safe_to_modify_with_backend("subdir", &backend)
+        .unwrap();
+
+    assert_allowed(result);
+}
+
+#[test]
+fn check_safe_to_modify_resolves_path_before_querying_path_changes() {
+    let backend = StubBackend::default().with_repo(
+        StubRepo::default()
+            .with_resolve_path_result("resolved/subdir")
+            .with_expected_path_changes_path("resolved/subdir"),
+    );
+
+    let result = AllowOptions::new()
+        .check_safe_to_modify_with_backend("input/subdir", &backend)
         .unwrap();
 
     assert_allowed(result);

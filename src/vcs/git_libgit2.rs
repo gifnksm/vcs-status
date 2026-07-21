@@ -9,7 +9,7 @@ use super::VcsRepository;
 use crate::{
     error::{self, ModifyGuardError},
     repository::{FileChange, RepositoryChanges},
-    util::{self, NormalizedWorktreePath},
+    util::{self, NormalizedPath},
     vcs::VcsBackend,
 };
 
@@ -125,12 +125,12 @@ impl VcsRepository for Libgit2Repository {
     fn path_changes(&self, path: &Path) -> Result<Option<RepositoryChanges>, ModifyGuardError> {
         let path = util::normalize_to_worktree_path(&self.worktree, path)?;
         let is_dir = match &path {
-            NormalizedWorktreePath::Existing(path) => {
+            NormalizedPath::Existing(path) => {
                 let fs_path = self.worktree.join(path);
                 let metadata = util::read_path_metadata(&fs_path)?;
                 metadata.is_dir()
             }
-            NormalizedWorktreePath::Missing(_) => true,
+            NormalizedPath::Missing(_) => true,
         };
         if path.as_path().as_os_str().is_empty() {
             return self.directory_path_changes(None);
@@ -145,11 +145,11 @@ impl VcsRepository for Libgit2Repository {
     fn file_change(&self, path: &Path) -> Result<Option<FileChange>, ModifyGuardError> {
         let path = util::normalize_to_worktree_path(&self.worktree, path)?;
         match &path {
-            NormalizedWorktreePath::Existing(path) => {
+            NormalizedPath::Existing(path) => {
                 let fs_path = self.worktree.join(path);
                 util::ensure_path_is_file(&fs_path)?;
             }
-            NormalizedWorktreePath::Missing(_) => {}
+            NormalizedPath::Missing(_) => {}
         }
         self.file_path_change(path)
     }
@@ -158,7 +158,7 @@ impl VcsRepository for Libgit2Repository {
 impl Libgit2Repository {
     fn directory_path_changes(
         &self,
-        path: Option<&NormalizedWorktreePath>,
+        path: Option<&NormalizedPath>,
     ) -> Result<Option<RepositoryChanges>, ModifyGuardError> {
         let mut repo_opts = git2::StatusOptions::new();
         if let Some(path) = path {
@@ -183,7 +183,7 @@ impl Libgit2Repository {
             .peekable();
 
         if file_entries.peek().is_none()
-            && let Some(NormalizedWorktreePath::Missing(path)) = &path
+            && let Some(NormalizedPath::Missing(path)) = &path
         {
             return Err(error::PathNotFoundSnafu { path }.build());
         }
@@ -193,19 +193,19 @@ impl Libgit2Repository {
 
     fn file_path_change(
         &self,
-        path: NormalizedWorktreePath,
+        path: NormalizedPath,
     ) -> Result<Option<FileChange>, ModifyGuardError> {
         let status = match self.repo.status_file(path.as_path()) {
             Ok(status) => status,
             Err(source) if source.code() == git2::ErrorCode::NotFound => {
                 match &path {
-                    NormalizedWorktreePath::Existing(path) => {
+                    NormalizedPath::Existing(path) => {
                         // At this point the path has already been resolved to an
                         // existing file within the worktree, so `NotFound` means the
                         // file is untracked by Git rather than missing from disk.
                         return Ok(StatusFlags::untracked().build(path));
                     }
-                    NormalizedWorktreePath::Missing(path) => {
+                    NormalizedPath::Missing(path) => {
                         return Err(error::PathNotFoundSnafu { path }.build());
                     }
                 }

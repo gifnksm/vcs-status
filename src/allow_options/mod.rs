@@ -141,7 +141,8 @@ impl AllowOptions {
         if self.check_entire_repository {
             repo.repository_changes()
         } else {
-            repo.path_changes(path)
+            let path = repo.resolve_path(path)?;
+            repo.path_changes(&path)
         }
     }
 
@@ -152,7 +153,8 @@ impl AllowOptions {
     /// [`Self::allow_no_vcs`] is enabled.
     ///
     /// When [`Self::check_entire_repository`] is disabled, the check is scoped
-    /// to `path`. When enabled, the entire containing repository is checked.
+    /// to `path` after resolving it within the containing repository worktree.
+    /// When enabled, the entire containing repository is checked.
     ///
     /// # Errors
     ///
@@ -248,6 +250,7 @@ trait AllowOptionsBackend {
 
 trait AllowOptionsRepository {
     fn worktree(&self) -> &Path;
+    fn resolve_path(&self, path: &Path) -> Result<PathBuf, ModifyGuardError>;
     fn path_changes(&self, path: &Path) -> Result<Option<RepositoryChanges>, ModifyGuardError>;
     fn repository_changes(&self) -> Result<Option<RepositoryChanges>, ModifyGuardError>;
 }
@@ -264,13 +267,16 @@ impl AllowOptionsBackend for RealBackend {
 
 impl AllowOptionsRepository for Repository {
     fn worktree(&self) -> &Path {
-        self.worktree()
+        Repository::worktree(self)
+    }
+    fn resolve_path(&self, path: &Path) -> Result<PathBuf, ModifyGuardError> {
+        Repository::resolve_path(self, path)
     }
     fn path_changes(&self, path: &Path) -> Result<Option<RepositoryChanges>, ModifyGuardError> {
-        self.path_changes(path)
+        Repository::path_changes(self, path)
     }
     fn repository_changes(&self) -> Result<Option<RepositoryChanges>, ModifyGuardError> {
-        self.repository_changes()
+        Repository::repository_changes(self)
     }
 }
 

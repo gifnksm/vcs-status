@@ -1,10 +1,16 @@
-use std::{fmt::Debug, path::Path};
+use std::{
+    fmt::Debug,
+    path::{Path, PathBuf},
+};
+
+use snafu::OptionExt as _;
 
 #[cfg(feature = "git-libgit2")]
 pub use self::git_libgit2::Libgit2BackendError;
 use crate::{
     error::{self, ModifyGuardError},
     repository::{FileChange, RepositoryChanges},
+    util::{self, NormalizedPath},
 };
 
 #[cfg(feature = "git-libgit2")]
@@ -45,6 +51,16 @@ pub(crate) trait VcsRepository: Debug {
     fn repository_changes(&self) -> Result<Option<RepositoryChanges>, ModifyGuardError>;
     fn path_changes(&self, path: &Path) -> Result<Option<RepositoryChanges>, ModifyGuardError>;
     fn file_change(&self, path: &Path) -> Result<Option<FileChange>, ModifyGuardError>;
+
+    fn resolve_path(&self, path: &Path) -> Result<PathBuf, ModifyGuardError> {
+        let worktree_path = util::canonicalize_path(self.worktree())?;
+        let normalized = NormalizedPath::new(path)?;
+        let normalized_relative = normalized
+            .strip_prefix(&worktree_path)
+            .ok()
+            .context(error::InvalidWorktreeRelativePathSnafu { path })?;
+        Ok(normalized_relative.into())
+    }
 }
 
 // assert that VcsRepository is dyn safe
