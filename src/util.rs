@@ -41,7 +41,7 @@ pub(crate) fn ensure_path_is_file(path: &Path) -> Result<(), ModifyGuardError> {
     Ok(())
 }
 
-fn canonicalize_path<P>(path: P) -> Result<PathBuf, ModifyGuardError>
+pub(crate) fn canonicalize_path<P>(path: P) -> Result<PathBuf, ModifyGuardError>
 where
     P: AsRef<Path>,
 {
@@ -56,29 +56,29 @@ where
 }
 
 #[derive(Debug)]
-pub(crate) enum NormalizedWorktreePath {
+pub(crate) enum NormalizedPath {
     Existing(PathBuf),
     Missing(PathBuf),
 }
 
-impl AsRef<Path> for NormalizedWorktreePath {
+impl AsRef<Path> for NormalizedPath {
     #[inline]
     fn as_ref(&self) -> &Path {
         self.as_path()
     }
 }
 
-impl From<NormalizedWorktreePath> for PathBuf {
+impl From<NormalizedPath> for PathBuf {
     #[inline]
-    fn from(value: NormalizedWorktreePath) -> Self {
+    fn from(value: NormalizedPath) -> Self {
         match value {
-            NormalizedWorktreePath::Existing(path) | NormalizedWorktreePath::Missing(path) => path,
+            NormalizedPath::Existing(path) | NormalizedPath::Missing(path) => path,
         }
     }
 }
 
-impl NormalizedWorktreePath {
-    fn new<P>(path: P) -> Result<Self, ModifyGuardError>
+impl NormalizedPath {
+    pub(crate) fn new<P>(path: P) -> Result<Self, ModifyGuardError>
     where
         P: AsRef<Path>,
     {
@@ -115,7 +115,7 @@ impl NormalizedWorktreePath {
 
     pub(crate) fn as_path(&self) -> &Path {
         match self {
-            NormalizedWorktreePath::Existing(path) | NormalizedWorktreePath::Missing(path) => path,
+            NormalizedPath::Existing(path) | NormalizedPath::Missing(path) => path,
         }
     }
 
@@ -139,7 +139,7 @@ impl NormalizedWorktreePath {
 pub(crate) fn normalize_to_worktree_path<P, Q>(
     worktree_path: P,
     path: Q,
-) -> Result<NormalizedWorktreePath, ModifyGuardError>
+) -> Result<NormalizedPath, ModifyGuardError>
 where
     P: AsRef<Path>,
     Q: AsRef<Path>,
@@ -147,7 +147,7 @@ where
     let worktree_path = worktree_path.as_ref();
     let path = path.as_ref();
     let worktree_path = canonicalize_path(worktree_path)?;
-    let entry_path = NormalizedWorktreePath::new(worktree_path.join(path))?;
+    let entry_path = NormalizedPath::new(worktree_path.join(path))?;
     let normalized = entry_path
         .strip_prefix(&worktree_path)
         .ok()
@@ -166,19 +166,19 @@ mod tests {
     use crate::testing::PathInTempDir;
 
     #[track_caller]
-    fn assert_existing<P>(actual: NormalizedWorktreePath, expected: P)
+    fn assert_existing<P>(actual: NormalizedPath, expected: P)
     where
         P: AsRef<Path>,
     {
-        assert_matches!(actual, NormalizedWorktreePath::Existing(p) if p == expected.as_ref());
+        assert_matches!(actual, NormalizedPath::Existing(p) if p == expected.as_ref());
     }
 
     #[track_caller]
-    fn assert_missing<P>(actual: NormalizedWorktreePath, expected: P)
+    fn assert_missing<P>(actual: NormalizedPath, expected: P)
     where
         P: AsRef<Path>,
     {
-        assert_matches!(actual, NormalizedWorktreePath::Missing(p) if p == expected.as_ref());
+        assert_matches!(actual, NormalizedPath::Missing(p) if p == expected.as_ref());
     }
 
     #[fixture]
